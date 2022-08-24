@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "jqlite"
-version = "0.2.0"
+version = "0.3.0"
 description = "A lightweight implementation of jq."
 authors = ["Christian <xian.tuxoid@qq.com>"]
 
