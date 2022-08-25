@@ -25,7 +25,7 @@ from jqlite.core.filters import (
     Mod,
     Map,
     String,
-    Iterator,
+    Iteration,
     Slice,
     Range,
 )
@@ -38,8 +38,8 @@ def test_identify():
 
 
 def test_iterator():
-    assert list(Iterator().input([1, 2, 3])) == [1, 2, 3]
-    assert list(Iterator().input({"foo": 1, "bar": 2})) == [1, 2]
+    assert list(Iteration().input([1, 2, 3])) == [1, 2, 3]
+    assert list(Iteration().input({"foo": 1, "bar": 2})) == [1, 2]
 
 
 def test_index():
@@ -81,7 +81,7 @@ def test_array():
     f = Array([Index(Literal("foo")), Index(Literal("bar"))])
     assert list(f.input({"foo": 1, "bar": 2})) == [[1, 2]]
 
-    assert list(Array([Iterator()]).input([1, 2, 3])) == [[1, 2, 3]]
+    assert list(Array([Iteration()]).input([1, 2, 3])) == [[1, 2, 3]]
 
 
 def test_object():
@@ -95,7 +95,7 @@ def test_object():
     )
     assert list(f.input({"foo": 1, "bar": 2, "baz": 3})) == [{"foo": 1, "bar": 2}]
 
-    f = Object([(Literal("foo"), Iterator()), (Literal("bar"), Iterator())])
+    f = Object([(Literal("foo"), Iteration()), (Literal("bar"), Iteration())])
     assert list(f.input([1, 2])) == [
         {"foo": 1, "bar": 1},
         {"foo": 1, "bar": 2},
@@ -114,12 +114,12 @@ def test_object():
                                 Literal("b"),
                             ]
                         ),
-                        Iterator(),
+                        Iteration(),
                     ]
                 ),
-                Iterator(),
+                Iteration(),
             ),
-            (Literal("bar"), Iterator()),
+            (Literal("bar"), Iteration()),
         ]
     )
     assert list(f.input([1, 2])) == [
@@ -144,12 +144,12 @@ def test_string():
     f = String([Literal("a"), Add(Literal(1), Literal(1)), Literal("c")])
     assert list(f.input(None)) == ["a2c"]
 
-    f = String([Literal("abc"), Iterator()])
+    f = String([Literal("abc"), Iteration()])
     assert list(f.input(["1", "2"])) == ["abc1", "abc2"]
 
 
 def test_pipe():
-    f = Pipe([Index(Literal("foo")), Iterator()])
+    f = Pipe([Index(Literal("foo")), Iteration()])
     assert list(f.input({"foo": [1, 2, 3]})) == [1, 2, 3]
 
 
@@ -237,7 +237,7 @@ def test_length():
 
 
 def test_select():
-    f = Pipe([Iterator(), Select(Eq(Mod(Identity(), Literal(2)), Literal(0)))])
+    f = Pipe([Iteration(), Select(Eq(Mod(Identity(), Literal(2)), Literal(0)))])
     assert list(f.input([1, 2, 3, 4])) == [2, 4]
 
 

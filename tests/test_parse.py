@@ -21,7 +21,7 @@ from jqlite.core.filters import (
     Length,
     Map,
     String,
-    Iterator,
+    Iteration,
     Slice,
     Range,
 )
@@ -105,7 +105,7 @@ def test_parse_identity():
 
 
 def test_parse_iterate():
-    assert parse(".[]") == Iterator()
+    assert parse(".[]") == Iteration()
 
 
 def test_parse_prop():
@@ -144,7 +144,7 @@ def test_parse_array():
     assert parse("[]") == Array([])
     assert parse("[.]") == Array([Identity()])
     assert parse("[1, 2, 3]") == Array([Literal(1), Literal(2), Literal(3)])
-    assert parse("[.[] | [.]]") == Array([Pipe([Iterator(), Array([Identity()])])])
+    assert parse("[.[] | [.]]") == Array([Pipe([Iteration(), Array([Identity()])])])
 
 
 def test_parse_object():
@@ -155,7 +155,7 @@ def test_parse_object():
     assert parse('{["foo" + "bar"]: 42}') == Object(
         [(Add(String([Literal("foo")]), String([Literal("bar")])), Literal(42))]
     )
-    assert parse('{"foo": [.[]]}') == Object([(Literal("foo"), Array([Iterator()]))])
+    assert parse('{"foo": [.[]]}') == Object([(Literal("foo"), Array([Iteration()]))])
     assert parse('{"foo": 1, "bar": 2}') == Object(
         [(Literal("foo"), Literal(1)), (Literal("bar"), Literal(2))]
     )
@@ -184,7 +184,7 @@ def test_parse_string_interpolation():
 
 def test_parse_mul():
     assert parse("1 * 2") == Mul(Literal(1), Literal(2))
-    assert parse(".[] / 2") == Div(Iterator(), Literal(2))
+    assert parse(".[] / 2") == Div(Iteration(), Literal(2))
     assert parse("1 * 2 * 3") == Mul(Mul(Literal(1), Literal(2)), Literal(3))
 
 

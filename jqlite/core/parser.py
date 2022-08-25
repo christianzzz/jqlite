@@ -29,7 +29,7 @@ from jqlite.core.filters import (
     Neg,
     Pos,
     Not,
-    Iterator,
+    Iteration,
     Slice,
 )
 
@@ -313,7 +313,7 @@ class Parser:
                 self._expect(Token(TokenType.PUNCT, "]"))
 
                 if not indices:
-                    index = Iterator()
+                    index = Iteration()
                 elif len(indices) == 1:
                     index = Index(indices[0])
                 else:

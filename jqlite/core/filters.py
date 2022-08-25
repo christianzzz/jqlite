@@ -38,7 +38,7 @@ class Identity(Filter):
         return "Identity()"
 
 
-class Iterator(Filter):
+class Iteration(Filter):
     def input(self, val: Value) -> Iterable[Value]:
         yield from iterate(val)
 
@@ -46,7 +46,7 @@ class Iterator(Filter):
         return ".[]"
 
     def __repr__(self):
-        return "Iterator()"
+        return "Iteration()"
 
 
 class Index(Filter):
@@ -304,7 +304,7 @@ class Fn(Filter, ABC):
 class Sum(Fn):
     def input(self, val: Value) -> Iterable[Value]:
         result = None
-        for v in Iterator().input(val):
+        for v in Iteration().input(val):
             result = add(result, v)
         yield result
 
@@ -341,7 +341,7 @@ class Map(Fn):
         self.filter = filter
 
     def input(self, val: Value) -> Iterable[Value]:
-        yield from Array([Pipe([Iterator(), self.filter])]).input(val)
+        yield from Array([Pipe([Iteration(), self.filter])]).input(val)
 
     def __str__(self):
         return f"map({self.filter})"
