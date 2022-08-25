@@ -280,19 +280,16 @@ class UnaryOp(Filter, ABC):
             yield self.op(v)
 
 
-class Neg(UnaryOp):
-    def __init__(self, filter: Filter):
-        super(Neg, self).__init__(filter, Op(operator.neg, "-"))
+def make_unary_op(name: str, op):
+    def constructor(self, left: Filter):
+        UnaryOp.__init__(self, left, op)
+
+    return type(name, (UnaryOp,), {"__init__": constructor})
 
 
-class Pos(UnaryOp):
-    def __init__(self, filter: Filter):
-        super(Pos, self).__init__(filter, Op(operator.pos, "+"))
-
-
-class Not(UnaryOp):
-    def __init__(self, filter: Filter):
-        super(Not, self).__init__(filter, Op(operator.not_, "not"))
+Neg = make_unary_op("Neg", Op(operator.neg, "-"))
+Pos = make_unary_op("Pos", Op(operator.pos, "+"))
+Not = make_unary_op("Not", Op(operator.not_, "not"))
 
 
 class Fn(Filter, ABC):
