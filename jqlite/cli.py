@@ -15,10 +15,18 @@ def main():
     typer.run(run)
 
 
-def run(expr: Optional[str] = typer.Argument(None)):
+def run(
+    expr: Optional[str] = typer.Argument(None),
+    null_stdin: bool = typer.Option(
+        False, "--null-stdin", "-n", help="Do not read from stdin, using null as input."
+    ),
+):
     f = parse(expr) if expr else Identity()
-    json_str = sys.stdin.read()
-    json_obj = json.loads(json_str)
+    if null_stdin:
+        json_obj = None
+    else:
+        json_str = sys.stdin.read()
+        json_obj = json.loads(json_str)
     for v in f.input(json_obj):
         if os.isatty(sys.stdout.fileno()):
             json_print(v)
