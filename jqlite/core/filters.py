@@ -3,8 +3,6 @@ import operator
 from abc import ABC, abstractmethod
 from typing import Iterable, List, Tuple
 
-from more_itertools import chunked
-
 from jqlite.core.json_ops import (
     iterate,
     index,
@@ -12,6 +10,7 @@ from jqlite.core.json_ops import (
     Value,
     type_,
     is_int,
+    is_type,
     to_string,
     add,
     sub,
@@ -40,7 +39,7 @@ class Identity(Filter):
 
 class Iteration(Filter):
     def input(self, val: Value) -> Iterable[Value]:
-        yield from iterate(val)
+        return iterate(val)
 
     def __str__(self):
         return ".[]"
@@ -54,8 +53,7 @@ class Index(Filter):
         self.filter = filter
 
     def input(self, val: Value) -> Iterable[Value]:
-        for idx in self.filter.input(val):
-            yield index(val, idx)
+        return (index(val, idx) for idx in self.filter.input(val))
 
     def __str__(self):
         return f".[{self.filter}]"
@@ -113,8 +111,7 @@ class Semi(Filter):
 
     def input(self, val: Value) -> Iterable[Value]:
         for f in self.filters:
-            for v in f.input(val):
-                yield v
+            yield from f.input(val)
 
     def __eq__(self, other) -> bool:
         return super().__eq__(other) and self.filters == other.filters
@@ -148,25 +145,28 @@ class Array(Filter):
 
 
 class Object(Filter):
-    def __init__(self, filter_pairs: List[Tuple[Filter, Filter]]):
-        self.filter_pairs = filter_pairs
+    def __init__(self, kv_filters: Iterable[Tuple[Filter, Filter]]):
+        self.kv_filters = kv_filters
 
     def input(self, val: Value) -> Iterable[Value]:
-        filters = []
-        for k, v in self.filter_pairs:
-            filters.append(k.input(val))
-            filters.append(v.input(val))
-        for x in itertools.product(*filters):
-            yield {k: v for k, v in chunked(x, 2)}
+        return (
+            dict(items)
+            for items in itertools.product(
+                *(
+                    itertools.product(k.input(val), v.input(val))
+                    for k, v in self.kv_filters
+                )
+            )
+        )
 
     def __eq__(self, other) -> bool:
-        return super().__eq__(other) and self.filter_pairs == other.filter_pairs
+        return super().__eq__(other) and self.kv_filters == other.kv_filters
 
     def __str__(self):
-        return "{" + ",".join(f"{k}: {v}" for k, v in self.filter_pairs) + "}"
+        return "{" + ",".join(f"{k}: {v}" for k, v in self.kv_filters) + "}"
 
     def __repr__(self):
-        return f"Object({self.filter_pairs!r})"
+        return f"Object({self.kv_filters!r})"
 
 
 class String(Filter):
@@ -174,9 +174,8 @@ class String(Filter):
         self.filters = filters
 
     def input(self, val: Value) -> Iterable[Value]:
-        iterables = [f.input(val) for f in self.filters]
-        for parts in itertools.product(*iterables):
-            yield "".join(list(to_string(x) for x in parts))
+        for parts in itertools.product(*(f.input(val) for f in self.filters)):
+            yield "".join(to_string(x) for x in parts)
 
     def __eq__(self, other):
         return super(String, self).__eq__(other) and self.filters == other.filters
@@ -187,7 +186,7 @@ class Pipe(Filter):
         self.filters = filters
 
     def input(self, val: Value) -> Iterable[Value]:
-        yield from self._input_with_filters(val, self.filters)
+        return self._input_with_filters(val, self.filters)
 
     def _input_with_filters(self, val: Value, filters: List[Filter]) -> Iterable[Value]:
         if not filters:
@@ -338,7 +337,7 @@ class Map(Fn):
         self.filter = filter
 
     def input(self, val: Value) -> Iterable[Value]:
-        yield from Array([Pipe([Iteration(), self.filter])]).input(val)
+        return Array([Pipe([Iteration(), self.filter])]).input(val)
 
     def __str__(self):
         return f"map({self.filter})"
