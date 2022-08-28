@@ -8,9 +8,6 @@ authors = ["Christian <xian.tuxoid@qq.com>"]
 python = "^3.7.0"
 typer = {version = "^0.6.1", extras = ["all"]}
 termcolor = "^1.1.0"
-more-itertools = "^8.14.0"
-orjson = "^3.7.11"
-pyrsistent = "^0.18.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.1.2"
