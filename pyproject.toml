@@ -1,8 +1,11 @@
 [tool.poetry]
 name = "jqlite"
 version = "0.4.0"
-description = "A lightweight implementation of jq."
+description = "An implementation of jq for learning purposes."
 authors = ["Christian <xian.tuxoid@qq.com>"]
+readme = "README.md"
+repository = "https://github.com/christianzzz/jqlite"
+keywords = ["jq", "json", "jqlite"]
 
 [tool.poetry.dependencies]
 python = "^3.7.0"
