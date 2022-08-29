@@ -1,24 +1,38 @@
 import json
 import os
 import sys
-from typing import Optional
-
 import typer
 from termcolor import cprint
+from typing import Optional
 
 from jqlite.core import json_ops
 from jqlite.core.filters import Identity, Value
 from jqlite.core.parser import parse
+from . import __version__
 
 
 def main():
     typer.run(run)
 
 
+def version_callback(value: bool):
+    if value:
+        typer.echo(f"jqlite version {__version__}")
+        raise typer.Exit()
+
+
 def run(
     expr: Optional[str] = typer.Argument(None),
     null_stdin: bool = typer.Option(
         False, "--null-stdin", "-n", help="Do not read from stdin, using null as input."
+    ),
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        is_eager=True,
+        help="Output jqlite version and exit.",
     ),
 ):
     f = parse(expr) if expr else Identity()
