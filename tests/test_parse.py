@@ -25,74 +25,93 @@ from jqlite.core.filters import (
     Slice,
     Range,
 )
-from jqlite.core.parser import parse, Lexer, Token, TokenType
+from jqlite.core.parser import parse, Lexer, Token, TokenType, ParseError
 
 
-def test_lex_string_interpolation():
+def test_lexing_plain_string():
     lexer = Lexer('"abc"')
     assert list(lexer.lex()) == [Token(TokenType.STR, "abc")]
 
+
+def test_lexing_unclosed_string():
+    lexer = Lexer('"abc')
+    with pytest.raises(ParseError, match="Unclosed string."):
+        list(lexer.lex())
+
+
+def test_lexing_string_interp():
     lexer = Lexer('"a{}c"')
     assert list(lexer.lex()) == [
         Token(TokenType.STR_START, "a"),
-        Token(TokenType.PUNCT, "{"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "{"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, "c"),
     ]
 
     lexer = Lexer('"a{}b{}c"')
     assert list(lexer.lex()) == [
         Token(TokenType.STR_START, "a"),
-        Token(TokenType.PUNCT, "{"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "{"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR, "b"),
-        Token(TokenType.PUNCT, "{"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "{"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, "c"),
     ]
 
     lexer = Lexer('"{}"')
     assert list(lexer.lex()) == [
         Token(TokenType.STR_START, ""),
-        Token(TokenType.PUNCT, "{"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "{"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, ""),
     ]
 
+
+def test_lexing_string_interp_nested():
     lexer = Lexer('"{ "abc" }"')
     assert list(lexer.lex()) == [
         Token(TokenType.STR_START, ""),
-        Token(TokenType.PUNCT, "{"),
+        Token(TokenType.OP, "{"),
         Token(TokenType.STR, "abc"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, ""),
     ]
 
-    lexer = Lexer('"{ "a{"b"}c" }"')
+    lexer = Lexer('"{ "a{ "b" }c" }"')
     assert list(lexer.lex()) == [
         Token(TokenType.STR_START, ""),
-        Token(TokenType.PUNCT, "{"),
+        Token(TokenType.OP, "{"),
         Token(TokenType.STR_START, "a"),
-        Token(TokenType.PUNCT, "{"),
+        Token(TokenType.OP, "{"),
         Token(TokenType.STR, "b"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, "c"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, ""),
     ]
 
     lexer = Lexer('"{ {"a": 1} }"')
     assert list(lexer.lex()) == [
         Token(TokenType.STR_START, ""),
-        Token(TokenType.PUNCT, "{"),
-        Token(TokenType.PUNCT, "{"),
+        Token(TokenType.OP, "{"),
+        Token(TokenType.OP, "{"),
         Token(TokenType.STR, "a"),
-        Token(TokenType.PUNCT, ":"),
+        Token(TokenType.OP, ":"),
         Token(TokenType.NUM, 1.0),
-        Token(TokenType.PUNCT, "}"),
-        Token(TokenType.PUNCT, "}"),
+        Token(TokenType.OP, "}"),
+        Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, ""),
     ]
+
+
+def test_lexing_unterminated_string_interp():
+
+    lexer = Lexer('"{')
+    with pytest.raises(
+        ParseError, match="Unterminated expression in string interpolation."
+    ):
+        list(lexer.lex())
 
 
 def test_parse_empty_expr():

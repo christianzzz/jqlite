@@ -1,5 +1,5 @@
-from enum import Enum
-from typing import Any, Iterable, NamedTuple, Optional
+from enum import Enum, auto
+from typing import Any, Iterable, NamedTuple, Optional, Union
 
 from jqlite.core.context import Context
 from jqlite.core.filters import (
@@ -35,104 +35,124 @@ from jqlite.core.filters import (
 
 
 class TokenType(Enum):
-    PUNCT = "punct"
-    NUM = "num"
-    STR = "str"
-    STR_START = "str_start"
-    STR_END = "str_end"
-    IDENT = "ident"
+    OP = auto()
+    NUM = auto()
+    STR = auto()
+    STR_START = auto()
+    STR_END = auto()
+    IDENT = auto()
+    EOF = auto()
 
 
 class Token(NamedTuple):
     type: TokenType
-    val: Any
+    value: Union[str, int, float]
+
+
+class ParseError(Exception):
+    pass
 
 
 class Lexer:
     def __init__(self, text: str):
         self.text = text
-        self.pos = 0
+        self.index = 0
         self.mode_stack = []
 
     def lex(self) -> Iterable[Token]:
-        while self.pos < len(self.text):
-            if self.mode_stack and self.text[self.mode_stack[-1]] == '"':
-                token_type = TokenType.STR
+        return self._read_expr()
 
-                if self.pos == self.mode_stack[-1]:
-                    token_type = TokenType.STR_START
-                    self.pos += 1
-
-                start = self.pos
-                while (
-                    self.pos < len(self.text)
-                    and self.text[self.pos] != '"'
-                    and self.text[self.pos] != "{"
-                ):
-                    self.pos += 1
-
-                if self.pos < len(self.text) and self.text[self.pos] == "{":
-                    yield Token(token_type, self.text[start : self.pos])
-                    yield Token(TokenType.PUNCT, "{")
-                    self.mode_stack.append(self.pos)
-                    self.pos += 1
-                elif self.pos < len(self.text) and self.text[self.pos] == '"':
-                    if token_type == TokenType.STR_START:
-                        token_type = TokenType.STR
-                    else:
-                        token_type = TokenType.STR_END
-                    yield Token(token_type, self.text[start : self.pos])
+    def _read_expr(self, nested: bool = False) -> Iterable[Token]:
+        while self.index < len(self.text):
+            char = self.text[self.index]
+            if char.isspace():
+                self.index += 1
+                continue
+            elif char == "{":
+                yield Token(TokenType.OP, char)
+                self.index += 1
+                if nested:
+                    self.mode_stack.append("{")
+            elif char == "}":
+                yield Token(TokenType.OP, char)
+                self.index += 1
+                if nested:
                     self.mode_stack.pop()
-                    self.pos += 1
-                else:
-                    raise Exception("Unexpected end of string")
+                    if self.mode_stack and self.mode_stack[-1] == '"':
+                        break
+            elif (
+                char in "!<>=+-*/"
+                and self.index + 1 < len(self.text)
+                and self.text[self.index + 1] == "="
+            ):
+                self.index += 2
+                yield Token(TokenType.OP, char + "=")
+            elif char in ".,:;[]()<>=+-*/%|":
+                self.index += 1
+                yield Token(TokenType.OP, char)
+            elif char == '"':
+                yield from self._read_string()
+            elif char.isdigit():
+                yield self._read_num()
+            elif self._is_ident(char):
+                yield self._read_ident()
             else:
-                char = self.text[self.pos]
+                raise ParseError(f"Invalid character {char}.")
 
-                if char.isspace():
-                    self.pos += 1
-                    continue
-                elif char in "!<>=+-*/" and self.text[self.pos + 1] == "=":
-                    self.pos += 2
-                    yield Token(TokenType.PUNCT, char + "=")
-                elif char == "{":
-                    yield Token(TokenType.PUNCT, char)
-                    self.mode_stack.append(self.pos)
-                    self.pos += 1
-                elif char == "}":
-                    yield Token(TokenType.PUNCT, char)
-                    self.mode_stack.pop()
-                    self.pos += 1
-                elif char in ".,:;[]()<>=+-*/%|":
-                    self.pos += 1
-                    yield Token(TokenType.PUNCT, char)
-                elif char == '"':
-                    self.mode_stack.append(self.pos)
-                elif char.isdigit():
-                    yield self._read_num()
-                elif char.isalpha() or char == "_":
-                    yield self._read_ident()
-                else:
-                    raise ValueError(f"invalid character {char}")
+        if nested and self.mode_stack and self.mode_stack[-1] == "{":
+            raise ParseError("Unterminated expression in string interpolation.")
+
+    def _read_string(self) -> Iterable[Token]:
+        self.mode_stack.append('"')
+        self.index += 1
+
+        token_type = TokenType.STR_START
+        start = self.index
+        while self.index < len(self.text):
+            char = self.text[self.index]
+            if char == "{":
+                yield Token(token_type, self.text[start : self.index])
+                yield from self._read_expr(nested=True)
+                start = self.index
+                token_type = TokenType.STR
+            elif char == '"':
+                yield Token(
+                    TokenType.STR
+                    if token_type == TokenType.STR_START
+                    else TokenType.STR_END,
+                    self.text[start : self.index],
+                )
+                self.mode_stack.pop()
+                self.index += 1
+                break
+            else:
+                self.index += 1
+
+        if self.mode_stack and self.mode_stack[-1] == '"':
+            raise ParseError("Unclosed string.")
 
     def _read_num(self):
-        start = self.pos
-        while self.pos < len(self.text) and (
-            self.text[self.pos] == "." or self.text[self.pos].isdigit()
+        start = self.index
+        while self.index < len(self.text) and (
+            self.text[self.index] == "." or self.text[self.index].isdigit()
         ):
-            self.pos += 1
-        return Token(TokenType.NUM, float(self.text[start : self.pos]))
+            self.index += 1
+        return Token(TokenType.NUM, float(self.text[start : self.index]))
+
+    @staticmethod
+    def _is_ident(char: str) -> bool:
+        return char.isalpha() or char == "_"
 
     def _read_ident(self):
-        start = self.pos
+        start = self.index
 
-        while self.pos < len(self.text):
-            char = self.text[self.pos]
+        while self.index < len(self.text):
+            char = self.text[self.index]
             if not char.isalnum() and char != "_":
                 break
-            self.pos += 1
+            self.index += 1
 
-        return Token(TokenType.IDENT, self.text[start : self.pos])
+        return Token(TokenType.IDENT, self.text[start : self.index])
 
 
 class Parser:
@@ -159,14 +179,14 @@ class Parser:
 
     def _parse_pipe(self) -> Filter:
         filters = [self._parse_semi()]
-        while self._peek() == Token(TokenType.PUNCT, "|"):
+        while self._peek() == Token(TokenType.OP, "|"):
             self._next()
             filters.append(self._parse_semi())
         return Pipe(filters) if len(filters) > 1 else filters[0]
 
     def _parse_semi(self) -> Filter:
         filters = [self._parse_logical_or()]
-        while self._peek() == Token(TokenType.PUNCT, ";"):
+        while self._peek() == Token(TokenType.OP, ";"):
             self._next()
             filters.append(self._parse_logical_or())
         return Semi(filters) if len(filters) > 1 else filters[0]
@@ -189,22 +209,22 @@ class Parser:
 
     def _parse_eq(self):
         result = self._parse_add()
-        if self._peek() == Token(TokenType.PUNCT, ">"):
+        if self._peek() == Token(TokenType.OP, ">"):
             self._next()
             result = Gt(result, self._parse_add())
-        elif self._peek() == Token(TokenType.PUNCT, ">="):
+        elif self._peek() == Token(TokenType.OP, ">="):
             self._next()
             result = Ge(result, self._parse_add())
-        elif self._peek() == Token(TokenType.PUNCT, "<"):
+        elif self._peek() == Token(TokenType.OP, "<"):
             self._next()
             result = Lt(result, self._parse_add())
-        elif self._peek() == Token(TokenType.PUNCT, "<="):
+        elif self._peek() == Token(TokenType.OP, "<="):
             self._next()
             result = Le(result, self._parse_add())
-        elif self._peek() == Token(TokenType.PUNCT, "=="):
+        elif self._peek() == Token(TokenType.OP, "=="):
             self._next()
             result = Eq(result, self._parse_add())
-        elif self._peek() == Token(TokenType.PUNCT, "!="):
+        elif self._peek() == Token(TokenType.OP, "!="):
             self._next()
             result = Ne(result, self._parse_add())
         return result
@@ -212,10 +232,10 @@ class Parser:
     def _parse_add(self) -> Filter:
         result = self._parse_mul()
         while True:
-            if self._peek() == Token(TokenType.PUNCT, "+"):
+            if self._peek() == Token(TokenType.OP, "+"):
                 self._next()
                 result = Add(result, self._parse_mul())
-            elif self._peek() == Token(TokenType.PUNCT, "-"):
+            elif self._peek() == Token(TokenType.OP, "-"):
                 self._next()
                 result = Sub(result, self._parse_mul())
             else:
@@ -225,13 +245,13 @@ class Parser:
     def _parse_mul(self) -> Filter:
         result = self._parse_unary()
         while True:
-            if self._peek() == Token(TokenType.PUNCT, "*"):
+            if self._peek() == Token(TokenType.OP, "*"):
                 self._next()
                 result = Mul(result, self._parse_unary())
-            elif self._peek() == Token(TokenType.PUNCT, "/"):
+            elif self._peek() == Token(TokenType.OP, "/"):
                 self._next()
                 result = Div(result, self._parse_unary())
-            elif self._peek() == Token(TokenType.PUNCT, "%"):
+            elif self._peek() == Token(TokenType.OP, "%"):
                 self._next()
                 result = Mod(result, self._parse_unary())
             else:
@@ -240,10 +260,10 @@ class Parser:
 
     def _parse_unary(self) -> Filter:
         token = self._peek()
-        if token == Token(TokenType.PUNCT, "-"):
+        if token == Token(TokenType.OP, "-"):
             self._next()
             return Neg(self._parse_unary())
-        elif token == Token(TokenType.PUNCT, "+"):
+        elif token == Token(TokenType.OP, "+"):
             self._next()
             return Pos(self._parse_unary())
         elif token == Token(TokenType.IDENT, "not"):
@@ -255,62 +275,64 @@ class Parser:
     def _parse_primary(self) -> Filter:
         token = self._peek()
         result = None
-        if token == Token(TokenType.PUNCT, "("):
+        if token == Token(TokenType.OP, "("):
             self._next()
             result = self._parse_pipe()
-            self._expect(Token(TokenType.PUNCT, ")"))
+            self._expect(Token(TokenType.OP, ")"))
         elif (
-            token.val == "."
+            token.value == "."
             and self._peek(1)
-            and self._peek(1) == Token(TokenType.PUNCT, "[")
+            and self._peek(1) == Token(TokenType.OP, "[")
         ):
             self.pos += 1
         elif (
-            token.val == "." and self._peek(1) and self._peek(1).type == TokenType.IDENT
+            token.value == "."
+            and self._peek(1)
+            and self._peek(1).type == TokenType.IDENT
         ):
             pass
-        elif token.val == ".":
+        elif token.value == ".":
             self._next()
             result = Identity()
-        elif token == Token(TokenType.PUNCT, "["):
+        elif token == Token(TokenType.OP, "["):
             result = self._parse_array()
-        elif token == Token(TokenType.PUNCT, "{"):
+        elif token == Token(TokenType.OP, "{"):
             result = self._parse_object()
         elif token.type == TokenType.IDENT:
-            if token.val == "null":
+            if token.value == "null":
                 self._next()
                 result = Literal(None)
-            elif token.val == "true":
+            elif token.value == "true":
                 self._next()
                 result = Literal(True)
-            elif token.val == "false":
+            elif token.value == "false":
                 self._next()
                 result = Literal(False)
             else:
                 result = self._parse_fn_call()
         elif token.type == TokenType.NUM:
             self._next()
-            result = Literal(token.val)
+            result = Literal(token.value)
         elif token.type == TokenType.STR:
             self._next()
-            result = String([Literal(token.val)])
+            result = String([Literal(token.value)])
         elif token.type == TokenType.STR_START:
             result = self._parse_string_interpolation()
         else:
             raise ValueError(f"invalid token {self.tokens[self.pos]}")
 
         while True:
-            if self._peek() == Token(TokenType.PUNCT, "["):
+            if self._peek() == Token(TokenType.OP, "["):
                 indices = []
 
                 self._next()
-                if self._peek() != Token(TokenType.PUNCT, "]"):
+                if self._peek() != Token(TokenType.OP, "]"):
                     indices.append(self._parse_slice_index())
                     for _ in range(2):
-                        if self._peek() == Token(TokenType.PUNCT, ":"):
+                        if self._peek() == Token(TokenType.OP, ":"):
                             self._next()
                             indices.append(self._parse_slice_index())
-                self._expect(Token(TokenType.PUNCT, "]"))
+                self._expect(Token(TokenType.OP, "]"))
 
                 if not indices:
                     index = Iteration()
@@ -320,13 +342,13 @@ class Parser:
                     index = Slice(indices)
 
                 result = Pipe([result, index]) if result else index
-            elif self._peek() == Token(TokenType.PUNCT, "."):
+            elif self._peek() == Token(TokenType.OP, "."):
                 self._next()
                 if self._peek() and self._peek().type == TokenType.IDENT:
                     result = (
-                        Pipe([result, Index(Literal(self._next().val))])
+                        Pipe([result, Index(Literal(self._next().value))])
                         if result
-                        else Index(Literal(self._next().val))
+                        else Index(Literal(self._next().value))
                     )
             else:
                 break
@@ -334,28 +356,28 @@ class Parser:
         return result
 
     def _parse_slice_index(self) -> Filter:
-        if self._peek() == Token(TokenType.PUNCT, ":") or self._peek() == Token(
-            TokenType.PUNCT, "]"
+        if self._peek() == Token(TokenType.OP, ":") or self._peek() == Token(
+            TokenType.OP, "]"
         ):
             return Literal(None)
         else:
             return self._parse_pipe()
 
     def _parse_fn_call(self) -> Fn:
-        name = self._peek().val
+        name = self._peek().value
         fn = self.ctx.get(name)
         if not fn:
             raise ValueError(f"{name} undefined")
 
         self._next()
         args = []
-        if self._peek() == Token(TokenType.PUNCT, "("):
+        if self._peek() == Token(TokenType.OP, "("):
             self._next()
-            if self._peek() == Token(TokenType.PUNCT, ")"):
+            if self._peek() == Token(TokenType.OP, ")"):
                 self._next()
             else:
                 args.append(self._parse_pipe())
-                while self._peek() == Token(TokenType.PUNCT, ","):
+                while self._peek() == Token(TokenType.OP, ","):
                     self._next()
                     args.append(self._parse_pipe())
                 self._next()
@@ -366,24 +388,24 @@ class Parser:
     def _parse_string_interpolation(self) -> Filter:
         filters = []
         token = self._next()
-        if token.val:
-            filters.append(Literal(token.val))
+        if token.value:
+            filters.append(Literal(token.value))
         while self.pos < len(self.tokens):
             token = self._peek()
-            if token == Token(TokenType.PUNCT, "{"):
+            if token == Token(TokenType.OP, "{"):
                 self._next()
                 filters.append(self._parse_pipe())
-                self._expect(Token(TokenType.PUNCT, "}"))
+                self._expect(Token(TokenType.OP, "}"))
             elif token.type == TokenType.STR_START:
                 self._parse_string_interpolation()
             elif token.type == TokenType.STR:
                 self._next()
-                if token.val:
-                    filters.append(Literal(token.val))
+                if token.value:
+                    filters.append(Literal(token.value))
             elif token.type == TokenType.STR_END:
                 self._next()
-                if token.val:
-                    filters.append(Literal(token.val))
+                if token.value:
+                    filters.append(Literal(token.value))
                 break
             else:
                 raise ValueError(f"invalid token {token}")
@@ -391,20 +413,20 @@ class Parser:
 
     def _parse_array(self) -> Filter:
         result = []
-        self._expect(Token(TokenType.PUNCT, "["))
+        self._expect(Token(TokenType.OP, "["))
         while True:
-            if self._peek() == Token(TokenType.PUNCT, "]"):
+            if self._peek() == Token(TokenType.OP, "]"):
                 self._next()
                 break
             else:
                 result.append(self._parse_pipe())
-                if self._peek() == Token(TokenType.PUNCT, ","):
+                if self._peek() == Token(TokenType.OP, ","):
                     self._next()
         return Array(result)
 
     def _parse_object(self) -> Filter:
-        self._expect(Token(TokenType.PUNCT, "{"))
-        if self._peek() == Token(TokenType.PUNCT, "}"):
+        self._expect(Token(TokenType.OP, "{"))
+        if self._peek() == Token(TokenType.OP, "}"):
             self._next()
             return Object([])
 
@@ -412,38 +434,38 @@ class Parser:
         while True:
             result.append(self._parse_object_item())
 
-            if self._peek() != Token(TokenType.PUNCT, ",") and self._peek() != Token(
-                TokenType.PUNCT, "}"
+            if self._peek() != Token(TokenType.OP, ",") and self._peek() != Token(
+                TokenType.OP, "}"
             ):
                 raise ValueError(f"Unexpected token {self._peek()}")
 
-            if self._peek() == Token(TokenType.PUNCT, ","):
+            if self._peek() == Token(TokenType.OP, ","):
                 self._next()
 
-            if self._peek() == Token(TokenType.PUNCT, "}"):
+            if self._peek() == Token(TokenType.OP, "}"):
                 self._next()
                 break
 
         return Object(result)
 
     def _parse_object_item(self):
-        if self._peek() == Token(TokenType.PUNCT, "["):
+        if self._peek() == Token(TokenType.OP, "["):
             self._next()
             key = self._parse_pipe()
-            self._expect(Token(TokenType.PUNCT, "]"))
-            if self._peek() == Token(TokenType.PUNCT, ":"):
+            self._expect(Token(TokenType.OP, "]"))
+            if self._peek() == Token(TokenType.OP, ":"):
                 self._next()
                 return key, self._parse_pipe()
             else:
                 raise ValueError(f"Unexpected token {self._peek()}")
         elif self._peek().type == TokenType.STR or self._peek().type == TokenType.IDENT:
-            key = self._peek().val
+            key = self._peek().value
             self._next()
-            if self._peek() == Token(TokenType.PUNCT, ":"):
+            if self._peek() == Token(TokenType.OP, ":"):
                 self._next()
                 return Literal(key), self._parse_pipe()
-            elif self._peek() == Token(TokenType.PUNCT, ",") or self._peek() == Token(
-                TokenType.PUNCT, "}"
+            elif self._peek() == Token(TokenType.OP, ",") or self._peek() == Token(
+                TokenType.OP, "}"
             ):
                 return Literal(key), Index(Literal(key))
             else:
