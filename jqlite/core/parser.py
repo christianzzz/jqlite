@@ -41,7 +41,6 @@ class TokenType(Enum):
     STR_START = auto()
     STR_END = auto()
     IDENT = auto()
-    EOF = auto()
 
 
 class Token(NamedTuple):
@@ -51,6 +50,10 @@ class Token(NamedTuple):
 
 class ParseError(Exception):
     pass
+
+
+OPERATORS = set(".,:;[]()<>=+-*/%|")
+DOUBLE_OPERATORS = {">=", "<=", "==", "!=", "+=", "-=", "*=", "/="}
 
 
 class Lexer:
@@ -80,14 +83,10 @@ class Lexer:
                     self.mode_stack.pop()
                     if self.mode_stack and self.mode_stack[-1] == '"':
                         break
-            elif (
-                char in "!<>=+-*/"
-                and self.index + 1 < len(self.text)
-                and self.text[self.index + 1] == "="
-            ):
+            elif self.text[self.index : self.index + 2] in DOUBLE_OPERATORS:
                 self.index += 2
                 yield Token(TokenType.OP, char + "=")
-            elif char in ".,:;[]()<>=+-*/%|":
+            elif char in OPERATORS:
                 self.index += 1
                 yield Token(TokenType.OP, char)
             elif char == '"':
@@ -97,7 +96,7 @@ class Lexer:
             elif self._is_ident(char):
                 yield self._read_ident()
             else:
-                raise ParseError(f"Invalid character {char}.")
+                raise ParseError(f"Unexpected character `{char}`.")
 
         if nested and self.mode_stack and self.mode_stack[-1] == "{":
             raise ParseError("Unterminated expression in string interpolation.")
