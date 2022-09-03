@@ -1,3 +1,5 @@
+from typing import Iterable, List
+
 import pytest
 
 from jqlite.core.filters import (
@@ -36,53 +38,57 @@ from jqlite.core.parser import (
 )
 
 
+def lex(text: str) -> List[Token]:
+    return list(Lexer(text).lex())
+
+
 def test_lex_empty():
-    assert list(Lexer("").lex()) == []
+    assert lex("") == []
 
 
 def test_lex_ops():
     for op in OPERATORS:
-        assert list(Lexer(op).lex()) == [Token(TokenType.OP, op)]
+        assert lex(op) == [Token(TokenType.OP, op)]
     with pytest.raises(ParseError, match="Unexpected character `@`."):
-        list(Lexer("@").lex())
+        lex("@")
 
 
 def test_lex_double_ops():
     for op in DOUBLE_OPERATORS:
-        assert list(Lexer(op).lex()) == [Token(TokenType.OP, op)]
+        assert lex(op) == [Token(TokenType.OP, op)]
 
 
 def test_lex_number():
-    assert list(Lexer("42").lex()) == [Token(TokenType.NUM, 42)]
-    assert list(Lexer("42.0").lex()) == [Token(TokenType.NUM, 42.0)]
-    assert list(Lexer("3.14").lex()) == [Token(TokenType.NUM, 3.14)]
+    assert lex("42") == [Token(TokenType.NUM, 42)]
+    assert lex("42.0") == [Token(TokenType.NUM, 42.0)]
+    assert lex("3.14") == [Token(TokenType.NUM, 3.14)]
 
 
 def test_lex_ident():
-    assert list(Lexer("foo").lex()) == [Token(TokenType.IDENT, "foo")]
-    assert list(Lexer("_foo").lex()) == [Token(TokenType.IDENT, "_foo")]
-    assert list(Lexer("foo123").lex()) == [Token(TokenType.IDENT, "foo123")]
+    assert lex("foo") == [Token(TokenType.IDENT, "foo")]
+    assert lex("_foo") == [Token(TokenType.IDENT, "_foo")]
+    assert lex("foo123") == [Token(TokenType.IDENT, "foo123")]
 
 
 def test_lexing_plain_string():
-    assert list(Lexer('""').lex()) == [Token(TokenType.STR, "")]
-    assert list(Lexer('"abc"').lex()) == [Token(TokenType.STR, "abc")]
+    assert lex('""') == [Token(TokenType.STR, "")]
+    assert lex('"abc"') == [Token(TokenType.STR, "abc")]
 
 
 def test_lexing_unclosed_string():
     with pytest.raises(ParseError, match="Unclosed string."):
-        list(Lexer('"abc').lex())
+        lex('"abc')
 
 
 def test_lexing_string_interp():
-    assert list(Lexer('"a{}c"').lex()) == [
+    assert lex('"a{}c"') == [
         Token(TokenType.STR_START, "a"),
         Token(TokenType.OP, "{"),
         Token(TokenType.OP, "}"),
         Token(TokenType.STR_END, "c"),
     ]
 
-    assert list(Lexer('"a{}b{}c"').lex()) == [
+    assert lex('"a{}b{}c"') == [
         Token(TokenType.STR_START, "a"),
         Token(TokenType.OP, "{"),
         Token(TokenType.OP, "}"),
@@ -92,7 +98,7 @@ def test_lexing_string_interp():
         Token(TokenType.STR_END, "c"),
     ]
 
-    assert list(Lexer('"{}"').lex()) == [
+    assert lex('"{}"') == [
         Token(TokenType.STR_START, ""),
         Token(TokenType.OP, "{"),
         Token(TokenType.OP, "}"),
@@ -101,7 +107,7 @@ def test_lexing_string_interp():
 
 
 def test_lexing_string_interp_nested():
-    assert list(Lexer('"{ "abc" }"').lex()) == [
+    assert lex('"{ "abc" }"') == [
         Token(TokenType.STR_START, ""),
         Token(TokenType.OP, "{"),
         Token(TokenType.STR, "abc"),
@@ -109,7 +115,7 @@ def test_lexing_string_interp_nested():
         Token(TokenType.STR_END, ""),
     ]
 
-    assert list(Lexer('"{ "a{ "b" }c" }"').lex()) == [
+    assert lex('"{ "a{ "b" }c" }"') == [
         Token(TokenType.STR_START, ""),
         Token(TokenType.OP, "{"),
         Token(TokenType.STR_START, "a"),
@@ -121,7 +127,7 @@ def test_lexing_string_interp_nested():
         Token(TokenType.STR_END, ""),
     ]
 
-    assert list(Lexer('"{ {"a": 1} }"').lex()) == [
+    assert lex('"{ {"a": 1} }"') == [
         Token(TokenType.STR_START, ""),
         Token(TokenType.OP, "{"),
         Token(TokenType.OP, "{"),
@@ -138,23 +144,23 @@ def test_lexing_unterminated_string_interp():
     with pytest.raises(
         ParseError, match="Unterminated expression in string interpolation."
     ):
-        list(Lexer('"{').lex())
+        lex('"{')
 
 
 def test_lex_token_separation():
-    assert list(Lexer("123abc").lex()) == [
+    assert lex("123abc") == [
         Token(TokenType.NUM, 123),
         Token(TokenType.IDENT, "abc"),
     ]
-    assert list(Lexer("123 abc").lex()) == [
+    assert lex("123 abc") == [
         Token(TokenType.NUM, 123),
         Token(TokenType.IDENT, "abc"),
     ]
 
 
 def test_lex_whitespace():
-    assert list(Lexer(" \r\n\t").lex()) == []
-    assert list(Lexer(" 42  ").lex()) == [Token(TokenType.NUM, 42)]
+    assert lex(" \r\n\t") == []
+    assert lex(" 42  ") == [Token(TokenType.NUM, 42)]
 
 
 def test_parse_empty_expr():
