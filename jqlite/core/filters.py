@@ -182,28 +182,27 @@ class String(Filter):
 
 
 class Pipe(Filter):
-    def __init__(self, filters: List[Filter]):
-        self.filters = filters
+    def __init__(self, left: Filter, right: Filter):
+        self.left = left
+        self.right = right
 
     def input(self, val: Value) -> Iterable[Value]:
-        return self._input_with_filters(val, self.filters)
-
-    def _input_with_filters(self, val: Value, filters: List[Filter]) -> Iterable[Value]:
-        if not filters:
-            yield val
-            return
-        [first, *rest] = filters
-        for v in first.input(val):
-            yield from self._input_with_filters(v, rest)
+        for lval in self.left.input(val):
+            for rval in self.right.input(lval):
+                yield rval
 
     def __eq__(self, other) -> bool:
-        return super().__eq__(other) and self.filters == other.filters
+        return (
+            super().__eq__(other)
+            and self.left == other.left
+            and self.right == other.right
+        )
 
     def __str__(self):
-        return " | ".join(str(f) for f in self.filters)
+        return f"{self.left} | {self.right}"
 
     def __repr__(self):
-        return f"Pipe({self.filters!r})"
+        return f"Pipe({repr(self.left)}, {repr(self.right)})"
 
 
 class Op:
@@ -337,7 +336,7 @@ class Map(Fn):
         self.filter = filter
 
     def input(self, val: Value) -> Iterable[Value]:
-        return Array([Pipe([Iteration(), self.filter])]).input(val)
+        return Array([Pipe(Iteration(), self.filter)]).input(val)
 
     def __str__(self):
         return f"map({self.filter})"

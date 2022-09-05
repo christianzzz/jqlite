@@ -107,15 +107,13 @@ def test_object():
         [
             (
                 Pipe(
-                    [
-                        Array(
-                            [
-                                Literal("a"),
-                                Literal("b"),
-                            ]
-                        ),
-                        Iteration(),
-                    ]
+                    Array(
+                        [
+                            Literal("a"),
+                            Literal("b"),
+                        ]
+                    ),
+                    Iteration(),
                 ),
                 Iteration(),
             ),
@@ -149,7 +147,7 @@ def test_string():
 
 
 def test_pipe():
-    f = Pipe([Index(Literal("foo")), Iteration()])
+    f = Pipe(Index(Literal("foo")), Iteration())
     assert list(f.input({"foo": [1, 2, 3]})) == [1, 2, 3]
 
 
@@ -237,7 +235,7 @@ def test_length():
 
 
 def test_select():
-    f = Pipe([Iteration(), Select(Eq(Mod(Identity(), Literal(2)), Literal(0)))])
+    f = Pipe(Iteration(), Select(Eq(Mod(Identity(), Literal(2)), Literal(0))))
     assert list(f.input([1, 2, 3, 4])) == [2, 4]
 
 

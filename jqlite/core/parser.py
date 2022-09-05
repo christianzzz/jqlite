@@ -166,11 +166,11 @@ class Parser:
         return self._parse_pipe()
 
     def _parse_pipe(self) -> Filter:
-        filters = [self._parse_semi()]
+        left = self._parse_semi()
         while self._peek() == Token(TokenType.OP, "|"):
             self._next()
-            filters.append(self._parse_semi())
-        return Pipe(filters) if len(filters) > 1 else filters[0]
+            left = Pipe(left, self._parse_semi())
+        return left
 
     def _parse_semi(self) -> Filter:
         filters = [self._parse_logical_or()]
