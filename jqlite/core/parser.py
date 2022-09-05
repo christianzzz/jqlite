@@ -155,21 +155,10 @@ class Lexer:
 
 
 class Parser:
-    """
-    优先级:
-        |
-        ,
-        = +=, -=, *=, /=
-        > >= < <= == !=
-        + -
-        * /
-        () atom
-    """
-
     def __init__(self, lexer: Lexer):
         self.ctx = Context()
         self.tokens = list(lexer.lex())
-        self.pos = 0
+        self.index = 0
 
     def parse(self) -> Optional[Filter]:
         if not self._peek():
@@ -283,11 +272,13 @@ class Parser:
             and self._peek(1)
             and self._peek(1) == Token(TokenType.OP, "[")
         ):
-            self.pos += 1
+            self.index += 1
         elif (
             token.value == "."
             and self._peek(1)
-            and self._peek(1).type == TokenType.IDENT
+            and (
+                self._is_string(self._peek(1)) or self._peek(1).type == TokenType.IDENT
+            )
         ):
             pass
         elif token.value == ".":
@@ -312,13 +303,10 @@ class Parser:
         elif token.type == TokenType.NUM:
             self._next()
             result = Literal(token.value)
-        elif token.type == TokenType.STR:
-            self._next()
-            result = String([Literal(token.value)])
-        elif token.type == TokenType.STR_START:
-            result = self._parse_string_interpolation()
+        elif self._is_string(token):
+            result = self._parse_string()
         else:
-            raise ValueError(f"invalid token {self.tokens[self.pos]}")
+            raise ParseError(f"Unexpected token: {self.tokens[self.index]}")
 
         while True:
             if self._peek() == Token(TokenType.OP, "["):
@@ -348,6 +336,12 @@ class Parser:
                         Pipe([result, Index(Literal(self._next().value))])
                         if result
                         else Index(Literal(self._next().value))
+                    )
+                elif self._peek() and self._is_string(self._peek()):
+                    result = (
+                        Pipe([result, Index(self._parse_string())])
+                        if result
+                        else Index(self._parse_string())
                     )
             else:
                 break
@@ -384,19 +378,27 @@ class Parser:
             pass
         return fn(*args)
 
-    def _parse_string_interpolation(self) -> Filter:
+    def _parse_string(self) -> Filter:
+        token = self._peek()
+        if token.type == TokenType.STR:
+            self._next()
+            return String([Literal(token.value)])
+        elif token.type == TokenType.STR_START:
+            return self._parse_string_interp()
+
+    def _parse_string_interp(self) -> Filter:
         filters = []
         token = self._next()
         if token.value:
             filters.append(Literal(token.value))
-        while self.pos < len(self.tokens):
+        while self.index < len(self.tokens):
             token = self._peek()
             if token == Token(TokenType.OP, "{"):
                 self._next()
                 filters.append(self._parse_pipe())
                 self._expect(Token(TokenType.OP, "}"))
             elif token.type == TokenType.STR_START:
-                self._parse_string_interpolation()
+                self._parse_string()
             elif token.type == TokenType.STR:
                 self._next()
                 if token.value:
@@ -436,7 +438,7 @@ class Parser:
             if self._peek() != Token(TokenType.OP, ",") and self._peek() != Token(
                 TokenType.OP, "}"
             ):
-                raise ValueError(f"Unexpected token {self._peek()}")
+                raise ParseError(f"Unexpected token {self._peek()}")
 
             if self._peek() == Token(TokenType.OP, ","):
                 self._next()
@@ -456,37 +458,43 @@ class Parser:
                 self._next()
                 return key, self._parse_pipe()
             else:
-                raise ValueError(f"Unexpected token {self._peek()}")
-        elif self._peek().type == TokenType.STR or self._peek().type == TokenType.IDENT:
-            key = self._peek().value
-            self._next()
+                raise ParseError(f"Unexpected token {self._peek()}")
+        elif self._is_string(self._peek()) or self._peek().type == TokenType.IDENT:
+            if self._is_string(self._peek()):
+                key = self._parse_string()
+            else:
+                key = String([Literal(self._next().value)])
             if self._peek() == Token(TokenType.OP, ":"):
                 self._next()
-                return Literal(key), self._parse_pipe()
+                return key, self._parse_pipe()
             elif self._peek() == Token(TokenType.OP, ",") or self._peek() == Token(
                 TokenType.OP, "}"
             ):
-                return Literal(key), Index(Literal(key))
+                return key, Index(key)
             else:
-                raise ValueError(f"Unexpected token {self._peek()}")
+                raise ParseError(f"Unexpected token {self._peek()}")
         else:
-            raise ValueError(f"Unexpected token {self._peek()}")
+            raise ParseError(f"Unexpected token {self._peek()}")
+
+    @staticmethod
+    def _is_string(token: Token) -> bool:
+        return token.type == TokenType.STR or token.type == TokenType.STR_START
 
     def _peek(self, n: int = 0) -> Optional[Token]:
-        if self.pos + n >= len(self.tokens):
+        if self.index + n >= len(self.tokens):
             return
-        return self.tokens[self.pos + n]
+        return self.tokens[self.index + n]
 
     def _next(self) -> Optional[Token]:
         token = self._peek()
         if token:
-            self.pos += 1
+            self.index += 1
         return token
 
     def _expect(self, token: Token):
         t = self._next()
         if t != token:
-            raise ValueError(f"Expect {token}, got {t}")
+            raise ParseError(f"Expect {token}, got {t}")
 
 
 def parse(expr: str) -> Optional[Filter]:

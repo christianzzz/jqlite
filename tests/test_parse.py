@@ -26,6 +26,12 @@ from jqlite.core.filters import (
     Iteration,
     Slice,
     Range,
+    Pos,
+    Neg,
+    Mod,
+    Not,
+    And,
+    Or,
 )
 from jqlite.core.parser import (
     parse,
@@ -165,7 +171,23 @@ def test_lex_whitespace():
 
 def test_parse_empty_expr():
     assert parse("") is None
-    assert parse(" \r\n\t") is None
+
+
+def test_parse_literal():
+    assert parse("null") == Literal(None)
+    assert parse("true") == Literal(True)
+    assert parse("false") == Literal(False)
+    assert parse("42") == Literal(42)
+
+
+def test_parse_string_interp():
+    assert parse('"foo"') == String([Literal("foo")])
+    assert parse('"a{1 | 1}c"') == String(
+        [Literal("a"), Pipe([Literal(1), Literal(1)]), Literal("c")]
+    )
+    assert parse('"{ "a{1}c" }"') == String(
+        [String([Literal("a"), Literal(1), Literal("c")])]
+    )
 
 
 def test_parse_identity():
@@ -176,11 +198,11 @@ def test_parse_iterate():
     assert parse(".[]") == Iteration()
 
 
-def test_parse_prop():
-    assert parse(".[1]") == Index(Literal(1))
+def test_parse_index():
     assert parse(".foo") == Index(Literal("foo"))
-    assert parse("._foo") == Index(Literal("_foo"))
-    assert parse("._foo_123") == Index(Literal("_foo_123"))
+    assert parse('."foo"') == Index(Literal("foo"))
+    assert parse('."foo{123}"') == Index(Literal("foo123"))
+    assert parse(".[1 | 2]") == Index(Pipe([Literal(1), Literal(2)]))
 
 
 def test_parse_slice():
@@ -196,82 +218,95 @@ def test_parse_slice():
     assert parse(".[:1:1]") == Slice([Literal(None), Literal(1), Literal(1)])
     assert parse(".[1::1]") == Slice([Literal(1), Literal(None), Literal(1)])
     assert parse(".[1:2:1]") == Slice([Literal(1), Literal(2), Literal(1)])
+    assert parse(".[1 | 1 : 2 | 2 : 1 | 1]") == Slice(
+        [
+            Pipe([Literal(1), Literal(1)]),
+            Pipe([Literal(2), Literal(2)]),
+            Pipe([Literal(1), Literal(1)]),
+        ]
+    )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ParseError):
         parse(".[:::]")
-
-
-def test_parse_literal():
-    assert parse("null") == Literal(None)
-    assert parse("true") == Literal(True)
-    assert parse("false") == Literal(False)
-    assert parse("3.14") == Literal(3.14)
 
 
 def test_parse_array():
     assert parse("[]") == Array([])
-    assert parse("[.]") == Array([Identity()])
     assert parse("[1, 2, 3]") == Array([Literal(1), Literal(2), Literal(3)])
-    assert parse("[.[] | [.]]") == Array([Pipe([Iteration(), Array([Identity()])])])
+    assert parse("[1, 2, 3,]") == Array([Literal(1), Literal(2), Literal(3)])
+    assert parse("[1 | 1]") == Array([Pipe([Literal(1), Literal(1)])])
+    with pytest.raises(ParseError):
+        parse("[1, 2, 3,,]")
 
 
 def test_parse_object():
     assert parse("{}") == Object([])
-    assert parse('{"foo": 42}') == Object([(Literal("foo"), Literal(42))])
-    assert parse("{foo}") == Object([(Literal("foo"), Index(Literal("foo")))])
-    assert parse('{"foo"}') == Object([(Literal("foo"), Index(Literal("foo")))])
-    assert parse('{["foo" + "bar"]: 42}') == Object(
-        [(Add(String([Literal("foo")]), String([Literal("bar")])), Literal(42))]
+    assert parse('{"foo": 42}') == Object([(String([Literal("foo")]), Literal(42))])
+    assert parse("{foo}") == Object(
+        [(String([Literal("foo")]), Index(String([Literal("foo")])))]
     )
-    assert parse('{"foo": [.[]]}') == Object([(Literal("foo"), Array([Iteration()]))])
+    assert parse('{"foo"}') == Object(
+        [(String([Literal("foo")]), Index(String([Literal("foo")])))]
+    )
+    assert parse('{["foo" | "bar"]: 42}') == Object(
+        [(Pipe([String([Literal("foo")]), String([Literal("bar")])]), Literal(42))]
+    )
+    assert parse('{"foo": 1 | 1}') == Object(
+        [(String([Literal("foo")]), Pipe([Literal(1), Literal(1)]))]
+    )
     assert parse('{"foo": 1, "bar": 2}') == Object(
-        [(Literal("foo"), Literal(1)), (Literal("bar"), Literal(2))]
+        [(String([Literal("foo")]), Literal(1)), (String([Literal("bar")]), Literal(2))]
     )
-    assert parse('{"foo": 1, "bar": 2,}') == Object(
-        [(Literal("foo"), Literal(1)), (Literal("bar"), Literal(2))]
-    )
+    assert parse('{"foo": 1,}') == Object([(String([Literal("foo")]), Literal(1))])
+    with pytest.raises(ParseError):
+        parse('{"foo": 1,,}')
 
 
-def test_parse_string():
-    assert parse('"foo"') == String([Literal("foo")])
+def test_parse_fn_call():
+    assert parse("length") == Length()
+    assert parse("range(1, 2)") == Range(Literal(1), Literal(2))
+    assert parse("map(. * 2)") == Map(Mul(Identity(), Literal(2)))
 
 
-def test_parse_string_interpolation():
-    assert parse('"a{1 + 1}c"') == String(
-        [Literal("a"), Add(Literal(1), Literal(1)), Literal("c")]
-    )
-
-    assert parse('"{ "a" }{ "b" }"') == String(
-        [String([Literal("a")]), String([Literal("b")])]
-    )
-
-    assert parse('"{ "a{1 + 1}c" }"') == String(
-        [String([Literal("a"), Add(Literal(1), Literal(1)), Literal("c")])]
-    )
+def test_unary():
+    assert parse("-1") == Neg(Literal(1))
+    assert parse("+1") == Pos(Literal(1))
+    assert parse("not true") == Not(Literal(True))
+    assert parse("not +-1") == Not(Pos(Neg(Literal(1))))
 
 
 def test_parse_mul():
     assert parse("1 * 2") == Mul(Literal(1), Literal(2))
-    assert parse(".[] / 2") == Div(Iteration(), Literal(2))
     assert parse("1 * 2 * 3") == Mul(Mul(Literal(1), Literal(2)), Literal(3))
+    assert parse("-1 * +2") == Mul(Neg(Literal(1)), Pos(Literal(2)))
+
+
+def test_parse_div():
+    assert parse("1 / 2") == Div(Literal(1), Literal(2))
+    assert parse("1 / 2 / 3") == Div(Div(Literal(1), Literal(2)), Literal(3))
+    assert parse("-1 / +2") == Div(Neg(Literal(1)), Pos(Literal(2)))
+
+
+def test_parse_mod():
+    assert parse("1 % 2") == Mod(Literal(1), Literal(2))
+    assert parse("1 % 2 % 3") == Mod(Mod(Literal(1), Literal(2)), Literal(3))
+    assert parse("-1 % +2") == Mod(Neg(Literal(1)), Pos(Literal(2)))
 
 
 def test_parse_add():
     assert parse("1 + 2") == Add(Literal(1), Literal(2))
-    assert parse("1 - 2") == Sub(Literal(1), Literal(2))
     assert parse("1 + 2 + 3") == Add(Add(Literal(1), Literal(2)), Literal(3))
-    # fmt: off
-    assert parse("1 + 2 * 3 - 4") == Sub(
-        Add(
-            Literal(1),
-            Mul(
-                Literal(2),
-                Literal(3)
-            )
-        ),
-        Literal(4)
+    assert parse("1 * 2 + 3 / 4") == Add(
+        Mul(Literal(1), Literal(2)), Div(Literal(3), Literal(4))
     )
-    # fmt: on
+
+
+def test_parse_sub():
+    assert parse("1 - 2") == Sub(Literal(1), Literal(2))
+    assert parse("1 - 2 - 3") == Sub(Sub(Literal(1), Literal(2)), Literal(3))
+    assert parse("1 * 2 - 3 / 4") == Sub(
+        Mul(Literal(1), Literal(2)), Div(Literal(3), Literal(4))
+    )
 
 
 def test_parse_eq():
@@ -289,20 +324,33 @@ def test_parse_eq():
     # fmt: on
 
 
-def test_parse_semi():
-    assert parse(".; .foo;null") == Semi(
-        [Identity(), Index(Literal("foo")), Literal(None)]
+def test_logical_and():
+    assert parse("true and false") == And(Literal(True), Literal(False))
+    assert parse("true and true and false") == And(
+        And(Literal(True), Literal(True)), Literal(False)
     )
+    assert parse("1 < 2 and 3 < 4") == And(
+        Lt(Literal(1), Literal(2)), Lt(Literal(3), Literal(4))
+    )
+
+
+def test_logical_or():
+    assert parse("true or false") == Or(Literal(True), Literal(False))
+    assert parse("true or true or false") == Or(
+        Or(Literal(True), Literal(True)), Literal(False)
+    )
+    assert parse("true and false or true and false") == Or(
+        And(Literal(True), Literal(False)), And(Literal(True), Literal(False))
+    )
+
+
+def test_parse_semi():
+    assert parse("1; 1 == 2") == Semi([Literal(1), Eq(Literal(1), Literal(2))])
 
 
 def test_parse_pipe():
-    assert parse(".foo | .bar") == Pipe([Index(Literal("foo")), Index(Literal("foo"))])
-    assert parse(".foo | .bar | .baz") == Pipe(
-        [Index(Literal("foo")), Index(Literal("foo")), Index(Literal("foo"))]
+    assert parse("1 | 2") == Pipe([Literal(1), Literal(2)])
+    assert parse("1 | 2 | 3") == Pipe([Literal(1), Literal(2), Literal(3)])
+    assert parse("1; 2 | 3; 4") == Pipe(
+        [Semi([Literal(1), Literal(2)]), Semi([Literal(3), Literal(4)])]
     )
-
-
-def test_parse_fn_call():
-    assert parse("length") == Length()
-    assert parse("range(1, 2)") == Range(Literal(1), Literal(2))
-    assert parse("map(. * 2)") == Map(Mul(Identity(), Literal(2)))
